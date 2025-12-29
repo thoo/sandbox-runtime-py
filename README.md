@@ -13,13 +13,31 @@ A Python implementation of the Sandbox Runtime - a lightweight sandboxing tool f
 ## Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/anthropic-experimental/sandbox-runtime.git
+cd sandbox-runtime/sandbox_runtime_py
+
 # Using pip
-pip install sandbox-runtime
+pip install .
 
 # Using uv
-uv add sandbox-runtime
+uv sync
+```
 
-# For development
+Or install directly from GitHub:
+
+```bash
+# Using pip
+pip install "sandbox-runtime @ git+https://github.com/anthropic-experimental/sandbox-runtime.git#subdirectory=sandbox_runtime_py"
+
+# Using uv
+uv add "sandbox-runtime @ git+https://github.com/anthropic-experimental/sandbox-runtime.git#subdirectory=sandbox_runtime_py"
+```
+
+For development:
+
+```bash
+cd sandbox_runtime_py
 uv sync --all-extras
 ```
 
@@ -31,7 +49,7 @@ uv sync --all-extras
 
 - Args mode: `srt-py <cmd> [args...]` (unknown flags are passed through)
 - String mode: `srt-py -c "<shell command>"`
- - Invalid config files now fail fast instead of silently falling back to defaults.
+- Invalid config files now fail fast instead of silently falling back to defaults.
 - HTTPS proxying uses CONNECT tunneling; direct `https://` requests without CONNECT are rejected.
 
 #### macOS Verification (sandbox-exec)

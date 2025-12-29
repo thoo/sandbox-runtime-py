@@ -98,13 +98,7 @@ class HttpProxyServer:
 
     async def _send_error(self, writer: asyncio.StreamWriter, status: str, message: str) -> None:
         """Send an HTTP error response and close the connection."""
-        response = (
-            f"HTTP/1.1 {status}\r\n"
-            "Content-Type: text/plain\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-            f"{message}"
-        )
+        response = f"HTTP/1.1 {status}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{message}"
         writer.write(response.encode("latin-1"))
         await writer.drain()
         writer.close()

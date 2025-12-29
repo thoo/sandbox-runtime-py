@@ -243,7 +243,6 @@ class TestHttpProxyIntegration:
             await server.stop()
 
 
-
 class TestHttpProxyConnectTunnel:
     """Tests for HTTPS CONNECT tunneling with a local TCP server."""
 
@@ -267,6 +266,7 @@ class TestHttpProxyConnectTunnel:
 
     async def test_connect_tunnel_to_local_echo(self):
         """Test CONNECT tunnel forwards raw bytes to a local echo server."""
+
         def allow_local(port: int, host: str) -> bool:
             return host == "127.0.0.1"
 
@@ -278,11 +278,7 @@ class TestHttpProxyConnectTunnel:
             proxy_port = await proxy.start()
             reader, writer = await asyncio.open_connection("127.0.0.1", proxy_port)
 
-            connect_req = (
-                f"CONNECT 127.0.0.1:{echo_port} HTTP/1.1\r\n"
-                f"Host: 127.0.0.1:{echo_port}\r\n"
-                "\r\n"
-            )
+            connect_req = f"CONNECT 127.0.0.1:{echo_port} HTTP/1.1\r\nHost: 127.0.0.1:{echo_port}\r\n\r\n"
             writer.write(connect_req.encode())
             await writer.drain()
 
@@ -308,6 +304,7 @@ class TestHttpProxyHttpsWithoutConnect:
 
     async def test_https_absolute_form_rejected(self):
         """Test https:// absolute-form without CONNECT returns 400."""
+
         def allow_all(port: int, host: str) -> bool:
             return True
 
