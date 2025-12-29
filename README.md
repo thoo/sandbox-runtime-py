@@ -300,8 +300,8 @@ A key use case is sandboxing Model Context Protocol (MCP) servers to restrict th
 {
   "mcpServers": {
     "filesystem": {
-      "command": "python",
-      "args": ["-m", "mcp_server_filesystem"]
+      "command": "uv",
+      "args": ["run", "python", "-m", "mcp_server_filesystem"]
     }
   }
 }
@@ -314,7 +314,33 @@ A key use case is sandboxing Model Context Protocol (MCP) servers to restrict th
   "mcpServers": {
     "filesystem": {
       "command": "srt-py",
-      "args": ["python", "-m", "mcp_server_filesystem"]
+      "args": ["uv", "run", "python", "-m", "mcp_server_filesystem"]
+    }
+  }
+}
+```
+
+If you have an installed entrypoint, you can use `uvx` instead:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "uvx",
+      "args": ["mcp_server_filesystem"]
+    }
+  }
+}
+```
+
+**With sandboxing** (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "srt-py",
+      "args": ["uvx", "mcp_server_filesystem"]
     }
   }
 }
