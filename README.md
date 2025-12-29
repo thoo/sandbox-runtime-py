@@ -1,6 +1,6 @@
-# Anthropic Sandbox Runtime (Python)
+# Sandbox Runtime (Python)
 
-This repo mirrors the TypeScript implementation at https://github.com/anthropic-experimental/sandbox-runtime.
+This repo mirrors Anthropic's TypeScript implementation at https://github.com/anthropic-experimental/sandbox-runtime.
 
 A Python implementation of the Sandbox Runtime - a lightweight sandboxing tool for enforcing filesystem and network restrictions on arbitrary processes at the OS level, without requiring a container.
 
