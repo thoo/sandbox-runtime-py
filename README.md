@@ -1,5 +1,7 @@
 # Anthropic Sandbox Runtime (Python)
 
+This repo mirrors the TypeScript implementation at https://github.com/anthropic-experimental/sandbox-runtime.
+
 A Python implementation of the Sandbox Runtime - a lightweight sandboxing tool for enforcing filesystem and network restrictions on arbitrary processes at the OS level, without requiring a container.
 
 `srt-py` uses native OS sandboxing primitives (`sandbox-exec` on macOS, `bubblewrap` on Linux) and proxy-based network filtering. It can be used to sandbox the behaviour of agents, local MCP servers, bash commands and arbitrary processes.
