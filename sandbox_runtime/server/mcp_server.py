@@ -1,6 +1,7 @@
 """MCP server for sandbox execution with streaming output."""
 
 import os
+import uuid
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -19,6 +20,9 @@ from .execution_manager import (
 
 load_dotenv()
 
+# Map session object id to UUID for consistent session identification
+_session_id_map: dict[int, str] = {}
+
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
@@ -35,20 +39,27 @@ async def lifespan(server: FastMCP):
         yield {"execution_manager": execution_manager, "config": config}
     finally:
         await execution_manager.shutdown()
+        _session_id_map.clear()
 
 
 mcp = FastMCP("Sandbox Execution Server", lifespan=lifespan)
 
 
 def get_session_id(ctx: Context) -> str:
-    """Get a unique session ID from the context."""
-    # Try client_id first, then fall back to a default
+    """Get a unique session ID from the context using UUID."""
+    # Use the session object's id as a key to get a consistent UUID
+    if ctx.request_context and ctx.request_context.session:
+        session_obj_id = id(ctx.request_context.session)
+        if session_obj_id not in _session_id_map:
+            _session_id_map[session_obj_id] = str(uuid.uuid4())
+        return _session_id_map[session_obj_id]
+
+    # Fall back to client_id if available
     if ctx.client_id:
         return ctx.client_id
-    # Use the request context's meta or a default
-    if ctx.request_context and ctx.request_context.meta:
-        return getattr(ctx.request_context.meta, "client_id", None) or "default"
-    return "default"
+
+    # Last resort: generate a new UUID (stateless mode)
+    return str(uuid.uuid4())
 
 
 @mcp.tool()
