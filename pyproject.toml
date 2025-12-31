@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sandbox-runtime"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lightweight sandboxing tool for enforcing filesystem and network restrictions on arbitrary processes at the OS level"
 readme = "README.md"
 license = "MIT"
@@ -36,8 +36,14 @@ dependencies = [
 
 [project.scripts]
 srt-py = "sandbox_runtime.cli:main"
+srt-mcp-server = "sandbox_runtime.server.mcp_server:main"
 
 [project.optional-dependencies]
+server = [
+    "mcp>=1.0",
+    "uvicorn[standard]>=0.30",
+    "loguru>=0.7",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",

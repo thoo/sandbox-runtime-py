@@ -26,12 +26,13 @@ Event types:
 import asyncio
 import json
 import os
+import resource
 import signal
 import sys
 import time
 from dataclasses import dataclass, field
 
-from .config import SandboxRuntimeConfig
+from .config import ResourceLimitsConfig, SandboxRuntimeConfig
 from .manager import SandboxManager
 
 
@@ -51,6 +52,42 @@ def emit(event_type: str, **kwargs) -> None:
     """Emit a JSON event to stdout."""
     event = {"type": event_type, "ts": time.time(), **kwargs}
     print(json.dumps(event), flush=True)
+
+
+# Signal numbers for resource limit violations
+SIGXCPU = 24  # CPU time limit exceeded
+SIGXFSZ = 25  # File size limit exceeded
+
+
+def get_resource_violation_reason(return_code: int | None) -> str | None:
+    """Check if the return code indicates a resource limit violation.
+
+    Returns a human-readable reason or None if not a resource violation.
+    """
+    if return_code is None:
+        return None
+
+    # Negative return codes indicate the process was killed by a signal
+    # The signal number is -return_code
+    if return_code < 0:
+        signal_num = -return_code
+        if signal_num == SIGXCPU:
+            return "CPU time limit exceeded"
+        if signal_num == SIGXFSZ:
+            return "File size limit exceeded"
+        # SIGKILL can indicate memory limit (OOM killer)
+        if signal_num == 9:  # SIGKILL
+            return "Process killed (possibly memory limit exceeded)"
+
+    # Some systems use 128 + signal_num as exit code
+    if return_code > 128:
+        signal_num = return_code - 128
+        if signal_num == SIGXCPU:
+            return "CPU time limit exceeded"
+        if signal_num == SIGXFSZ:
+            return "File size limit exceeded"
+
+    return None
 
 
 async def read_stdin_commands(process: asyncio.subprocess.Process) -> None:
@@ -106,6 +143,36 @@ def get_default_sandbox_config() -> SandboxRuntimeConfig:
     )
 
 
+def create_resource_limiter(limits: ResourceLimitsConfig | None):
+    """Create a preexec_fn that applies resource limits to the subprocess.
+
+    This function is called after fork() but before exec() in the child process.
+    """
+    if limits is None:
+        return None
+
+    def set_limits() -> None:
+        # Memory limit (virtual address space)
+        if limits.max_memory_mb is not None:
+            max_bytes = limits.max_memory_mb * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (max_bytes, max_bytes))
+
+        # CPU time limit
+        if limits.max_cpu_seconds is not None:
+            resource.setrlimit(resource.RLIMIT_CPU, (limits.max_cpu_seconds, limits.max_cpu_seconds))
+
+        # File size limit
+        if limits.max_file_size_mb is not None:
+            max_bytes = limits.max_file_size_mb * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_FSIZE, (max_bytes, max_bytes))
+
+        # Process limit
+        if limits.max_processes is not None:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limits.max_processes, limits.max_processes))
+
+    return set_limits
+
+
 async def run(config: RunnerConfig) -> int:
     """Run a command in the sandbox."""
     start_time = time.time()
@@ -136,6 +203,9 @@ async def run(config: RunnerConfig) -> int:
         if config.environment:
             env.update(config.environment)
 
+        # Create resource limiter if limits are configured
+        resource_limiter = create_resource_limiter(sandbox_config.resource_limits)
+
         # Start process
         process = await asyncio.create_subprocess_shell(
             wrapped_command,
@@ -144,6 +214,7 @@ async def run(config: RunnerConfig) -> int:
             stderr=asyncio.subprocess.PIPE,
             cwd=config.working_directory,
             env=env,
+            preexec_fn=resource_limiter,
         )
 
         emit("ready")
@@ -195,6 +266,12 @@ async def run(config: RunnerConfig) -> int:
                     return 130  # Standard cancellation exit code
 
                 duration_ms = int((time.time() - start_time) * 1000)
+
+                # Check for resource limit violations
+                resource_violation = get_resource_violation_reason(process.returncode)
+                if resource_violation:
+                    emit("resource_limit", reason=resource_violation)
+
                 emit("exit", code=process.returncode, duration_ms=duration_ms)
                 return process.returncode or 0
 
