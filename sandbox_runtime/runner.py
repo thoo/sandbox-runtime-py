@@ -95,7 +95,7 @@ async def stream_output(
         line = await stream.readline()
         if not line:
             break
-        emit(event_type, data=line.decode(errors="replace").rstrip("\n"))
+        emit(event_type, data=line.decode(errors="replace"))
 
 
 def get_default_sandbox_config() -> SandboxRuntimeConfig:
@@ -190,6 +190,8 @@ async def run(config: RunnerConfig) -> int:
 
                 if cancelled:
                     emit("cancelled")
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    emit("exit", code=process.returncode, duration_ms=duration_ms)
                     return 130  # Standard cancellation exit code
 
                 duration_ms = int((time.time() - start_time) * 1000)
@@ -208,7 +210,15 @@ async def run(config: RunnerConfig) -> int:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
                 except TimeoutError:
                     pass
+                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                if stdin_task:
+                    try:
+                        await stdin_task
+                    except asyncio.CancelledError:
+                        pass
                 emit("timeout", timeout_seconds=config.timeout_seconds)
+                duration_ms = int((time.time() - start_time) * 1000)
+                emit("exit", code=process.returncode, duration_ms=duration_ms)
                 return 124  # Standard timeout exit code
 
         finally:
