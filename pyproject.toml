@@ -49,6 +49,8 @@ dev = [
     "pre-commit>=3.0",
     "aioresponses>=0.7",
     "httpx>=0.25",
+    "matplotlib>=3.10",
+    "numpy>=2.0",
 ]
 
 [tool.hatch.build.targets.wheel]
