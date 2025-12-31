@@ -658,6 +658,37 @@ uv run ruff format
 uvx pre-commit run --all-files
 ```
 
+### Building Seccomp Binaries
+
+The pre-generated BPF filters are included in the repository, but you can rebuild them if needed. This requires Docker:
+
+```bash
+# From the parent sandbox-runtime directory
+cd ..
+./scripts/build-seccomp-binaries.sh
+```
+
+This script uses Docker to cross-compile seccomp binaries for multiple architectures:
+
+- x64 (x86-64)
+- arm64 (aarch64)
+
+The script builds static generator binaries, generates the BPF filters (~104 bytes each), and stores them in `vendor/seccomp/x64/` and `vendor/seccomp/arm64/`. The generator binaries are removed to keep the package size small.
+
+**What gets built:**
+
+- `unix-block.bpf` - Pre-compiled BPF filter that blocks Unix domain socket creation
+- `apply-seccomp` - Static binary that applies the seccomp filter and execs the user command
+
+**Source files** (in `vendor/seccomp-src/`):
+
+- `seccomp-unix-block.c` - Generates the BPF filter using libseccomp
+- `apply-seccomp.c` - Applies the filter via `prctl(PR_SET_SECCOMP)`
+
+**Architecture support:** x64 and arm64 are fully supported with pre-built binaries. Other architectures are not currently supported.
+
+For more details, see the [original TypeScript implementation README](https://github.com/anthropic-experimental/sandbox-runtime/blob/main/README.md).
+
 ## Security Limitations
 
 - **Network Sandboxing**: The network filtering operates by restricting domains. It does not inspect traffic content. Users should be aware of potential data exfiltration through allowed domains.
