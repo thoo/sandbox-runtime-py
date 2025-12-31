@@ -42,6 +42,7 @@ srt-mcp-server = "sandbox_runtime.server.mcp_server:main"
 server = [
     "mcp>=1.0",
     "uvicorn[standard]>=0.30",
+    "loguru>=0.7",
 ]
 dev = [
     "pytest>=7.0",

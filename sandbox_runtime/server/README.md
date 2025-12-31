@@ -467,6 +467,124 @@ async def run_agent():
 asyncio.run(run_agent())
 ```
 
+## Claude Code Integration
+
+Connect the Sandbox MCP Server to [Claude Code](https://claude.ai/code) for sandboxed code execution directly from the CLI.
+
+### Quick Setup (Recommended)
+
+Use the `/setup-sandbox-mcp` slash command in Claude Code:
+
+```
+/setup-sandbox-mcp
+```
+
+This interactive command will:
+- Ask whether to enable or disable the connection
+- Choose between local (project) or user (global) scope
+- Auto-generate or manually set an authentication token
+- Configure everything automatically
+
+### Manual Setup
+
+#### 1. Start the MCP Server
+
+```bash
+# Generate and set auth token
+export SANDBOX_AUTH_TOKEN=$(uv run python -c "import secrets; print(secrets.token_urlsafe(32))")
+echo "Token: $SANDBOX_AUTH_TOKEN"
+
+# Start server
+uv run python -m sandbox_runtime.server.mcp_server
+```
+
+#### 2. Add to Claude Code
+
+```bash
+# Local scope (current project only)
+claude mcp add --transport http sandbox http://127.0.0.1:8080/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN_HERE"
+
+# User scope (all projects)
+claude mcp add --transport http sandbox http://127.0.0.1:8080/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN_HERE" \
+  --scope user
+```
+
+#### 3. Restart Claude Code
+
+```bash
+claude
+```
+
+#### 4. Verify Connection
+
+```
+/mcp
+```
+
+You should see `sandbox` listed as a connected server.
+
+### Available Tools in Claude Code
+
+Once connected, Claude Code can use these sandbox tools:
+
+| Tool | Description |
+|------|-------------|
+| `mcp__sandbox__execute_code` | Execute commands and wait for completion |
+| `mcp__sandbox__execute_code_async` | Start long-running commands without waiting |
+| `mcp__sandbox__list_executions` | List all executions in the session |
+| `mcp__sandbox__get_execution_status` | Check status of an execution |
+| `mcp__sandbox__get_execution_output` | Retrieve output from an execution |
+| `mcp__sandbox__send_stdin` | Send input to interactive processes |
+| `mcp__sandbox__cancel_execution` | Cancel a running execution |
+
+### Example Usage in Claude Code
+
+Ask Claude Code to use the sandbox:
+
+```
+Use the sandbox to run: python -c "print('Hello from sandbox!')"
+```
+
+Or for more complex tasks:
+
+```
+Use the sandbox MCP to:
+1. Create a Python script that fetches weather data
+2. Run it and show me the output
+```
+
+### Managing the Connection
+
+```bash
+# List configured MCP servers
+claude mcp list
+
+# Remove the sandbox server
+claude mcp remove sandbox
+
+# View server details
+claude mcp get sandbox
+```
+
+### Debugging
+
+Monitor the MCP server logs to see all requests from Claude Code:
+
+```bash
+# Server shows detailed request/response logging
+uv run python -m sandbox_runtime.server.mcp_server
+```
+
+Example log output:
+```
+2024-12-31 12:00:00 | INFO | [abc123] ▶ POST /mcp
+    Headers: {'authorization': 'Bearer ...', ...}
+    Body: {"jsonrpc": "2.0", "method": "tools/call", ...}
+2024-12-31 12:00:00 | INFO | [abc123] ◀ 200 (28.5ms)
+```
+
 ## Troubleshooting
 
 ### Server won't start
