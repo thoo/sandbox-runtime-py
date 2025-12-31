@@ -36,8 +36,13 @@ dependencies = [
 
 [project.scripts]
 srt-py = "sandbox_runtime.cli:main"
+srt-mcp-server = "sandbox_runtime.server.mcp_server:main"
 
 [project.optional-dependencies]
+server = [
+    "mcp>=1.0",
+    "uvicorn[standard]>=0.30",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",
