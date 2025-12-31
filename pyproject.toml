@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sandbox-runtime"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lightweight sandboxing tool for enforcing filesystem and network restrictions on arbitrary processes at the OS level"
 readme = "README.md"
 license = "MIT"
