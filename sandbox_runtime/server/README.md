@@ -307,6 +307,7 @@ sequenceDiagram
 | `SANDBOX_MAX_PER_SESSION` | `5` | Max concurrent executions per session |
 | `SANDBOX_TIMEOUT` | `300` | Default execution timeout (seconds) |
 | `SANDBOX_AUTH_TOKEN` | *(none)* | Bearer token for authorization (disabled if not set) |
+| `SANDBOX_LOG_FILE` | `sandbox_server.log` | Log file path (set empty to disable file logging) |
 
 ### Sandbox Configuration
 

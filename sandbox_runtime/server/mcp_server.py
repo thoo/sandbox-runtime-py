@@ -29,6 +29,17 @@ from .execution_manager import (
 
 load_dotenv()
 
+# Configure loguru file logging
+_log_file = os.getenv("SANDBOX_LOG_FILE", "sandbox_server.log")
+if _log_file:
+    logger.add(
+        _log_file,
+        rotation="10 MB",
+        retention="7 days",
+        compression="gz",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {message}",
+    )
+
 # Store auth token globally for middleware access
 _auth_token: str | None = None
 
