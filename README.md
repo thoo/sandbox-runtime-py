@@ -12,32 +12,31 @@ A Python implementation of the Sandbox Runtime - a lightweight sandboxing tool f
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/anthropic-experimental/sandbox-runtime.git
-cd sandbox-runtime/sandbox_runtime_py
+Install from PyPI:
 
+```bash
 # Using pip
-pip install .
+pip install sandbox-runtime
 
 # Using uv
-uv sync
+uv add sandbox-runtime
 ```
 
 Or install directly from GitHub:
 
 ```bash
 # Using pip
-pip install "sandbox-runtime @ git+https://github.com/anthropic-experimental/sandbox-runtime.git#subdirectory=sandbox_runtime_py"
+pip install "sandbox-runtime @ git+https://github.com/thoo/sandbox-runtime-py.git"
 
 # Using uv
-uv add "sandbox-runtime @ git+https://github.com/anthropic-experimental/sandbox-runtime.git#subdirectory=sandbox_runtime_py"
+uv add "sandbox-runtime @ git+https://github.com/thoo/sandbox-runtime-py.git"
 ```
 
 For development:
 
 ```bash
-cd sandbox_runtime_py
+git clone https://github.com/thoo/sandbox-runtime-py.git
+cd sandbox-runtime-py
 uv sync --all-extras
 ```
 
