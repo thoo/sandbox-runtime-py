@@ -171,6 +171,46 @@ class RipgrepConfig(BaseModel):
     ] = None
 
 
+class ResourceLimitsConfig(BaseModel):
+    """Resource limits for sandboxed processes (memory, CPU)."""
+
+    max_memory_mb: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            le=65536,
+            description="Maximum memory in megabytes (virtual address space limit)",
+        ),
+    ] = None
+
+    max_cpu_seconds: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            le=86400,
+            description="Maximum CPU time in seconds (process will be killed if exceeded)",
+        ),
+    ] = None
+
+    max_file_size_mb: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            le=10240,
+            description="Maximum file size in megabytes that can be created",
+        ),
+    ] = None
+
+    max_processes: Annotated[
+        int | None,
+        Field(
+            ge=1,
+            le=1024,
+            description="Maximum number of child processes",
+        ),
+    ] = None
+
+
 # Type alias for ignore violations config
 IgnoreViolationsConfig = dict[str, list[str]]
 
@@ -222,6 +262,11 @@ class SandboxRuntimeConfig(BaseModel):
     allow_pty: Annotated[
         bool | None,
         Field(description="Allow pseudo-terminal (pty) operations (macOS only)"),
+    ] = None
+
+    resource_limits: Annotated[
+        ResourceLimitsConfig | None,
+        Field(description="Resource limits for the sandboxed process (memory, CPU, etc.)"),
     ] = None
 
     model_config = {"extra": "forbid"}

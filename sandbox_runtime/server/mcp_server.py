@@ -1,12 +1,16 @@
 """MCP server for sandbox execution with streaming output."""
 
 import os
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from typing import Annotated
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import Context, FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from .config import ServerConfig
 from .execution_manager import (
@@ -20,19 +24,87 @@ from .execution_manager import (
 
 load_dotenv()
 
+# Store auth token globally for middleware access
+_auth_token: str | None = None
+
+
+class BearerAuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to validate Bearer token authorization."""
+
+    async def dispatch(self, request: Request, call_next):
+        if _auth_token is None:
+            # Auth disabled
+            return await call_next(request)
+
+        # Allow health check endpoint without auth
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return JSONResponse(
+                {"error": "Missing Authorization header"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                {"error": "Invalid Authorization header format. Expected: Bearer <token>"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token = auth_header[7:]  # Strip "Bearer " prefix
+        if not secrets.compare_digest(token, _auth_token):
+            return JSONResponse(
+                {"error": "Invalid token"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return await call_next(request)
+
+
 # Map session object id to UUID for consistent session identification
 _session_id_map: dict[int, str] = {}
+
+
+def _get_int_env(name: str, default: int) -> int:
+    """Parse an int env var, falling back to default on errors."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _get_manager_and_session(ctx: Context | None) -> tuple[ExecutionManager, str] | None:
+    """Fetch the execution manager and session id from context."""
+    if ctx is None or ctx.request_context is None:
+        return None
+    lifespan_context = ctx.request_context.lifespan_context or {}
+    execution_manager = lifespan_context.get("execution_manager")
+    if execution_manager is None:
+        return None
+    return execution_manager, get_session_id(ctx)
 
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Initialize execution manager on startup, cleanup on shutdown."""
+    global _auth_token
+    _auth_token = os.getenv("SANDBOX_AUTH_TOKEN")
+
     config = ServerConfig(
         host=os.getenv("SANDBOX_HOST", "127.0.0.1"),
-        port=int(os.getenv("SANDBOX_PORT", "8080")),
-        max_concurrent_executions=int(os.getenv("SANDBOX_MAX_CONCURRENT", "10")),
-        max_executions_per_session=int(os.getenv("SANDBOX_MAX_PER_SESSION", "5")),
-        execution_timeout_seconds=int(os.getenv("SANDBOX_TIMEOUT", "300")),
+        port=_get_int_env("SANDBOX_PORT", 8080),
+        max_concurrent_executions=_get_int_env("SANDBOX_MAX_CONCURRENT", 10),
+        max_executions_per_session=_get_int_env("SANDBOX_MAX_PER_SESSION", 5),
+        execution_timeout_seconds=_get_int_env("SANDBOX_TIMEOUT", 300),
+        auth_token=_auth_token,
     )
     execution_manager = ExecutionManager(config)
     try:
@@ -40,6 +112,7 @@ async def lifespan(server: FastMCP):
     finally:
         await execution_manager.shutdown()
         _session_id_map.clear()
+        _auth_token = None
 
 
 mcp = FastMCP("Sandbox Execution Server", lifespan=lifespan)
@@ -92,8 +165,10 @@ async def execute_code(
             "error": "..."  # if failed
         }
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"error": "Missing request context", "status": "failed"}
+    execution_manager, session_id = context
 
     try:
         execution = await execution_manager.create_execution(
@@ -146,8 +221,10 @@ async def execute_code_async(
     This is useful for long-running commands where you want to do other work
     while the command runs.
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"error": "Missing request context", "status": "failed"}
+    execution_manager, session_id = context
 
     try:
         execution = await execution_manager.create_execution(
@@ -180,10 +257,14 @@ async def send_stdin(
 
     Only works for executions started with interactive=True.
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"success": False, "error": "Missing request context"}
+    execution_manager, session_id = context
 
     try:
+        if not input_data.endswith("\n"):
+            input_data += "\n"
         await execution_manager.send_stdin(session_id, execution_id, input_data)
         return {"success": True}
     except ExecutionNotFoundError:
@@ -205,8 +286,10 @@ async def cancel_execution(
 
     Returns whether the execution was actually running when cancelled.
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"success": False, "error": "Missing request context"}
+    execution_manager, session_id = context
 
     try:
         was_running = await execution_manager.cancel_execution(session_id, execution_id, force=force)
@@ -216,14 +299,16 @@ async def cancel_execution(
 
 
 @mcp.tool()
-async def list_executions(ctx: Context = None) -> list[dict]:
+async def list_executions(ctx: Context = None) -> list[dict] | dict:
     """
     List all executions for the current session.
 
     Returns execution info including id, status, command, and timing info.
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"error": "Missing request context"}
+    execution_manager, session_id = context
 
     return await execution_manager.list_executions(session_id)
 
@@ -238,8 +323,10 @@ async def get_execution_status(
 
     Returns detailed info including exit code, error message, and timing.
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"error": "Missing request context"}
+    execution_manager, session_id = context
 
     try:
         return await execution_manager.get_status(session_id, execution_id)
@@ -266,11 +353,13 @@ async def get_execution_output(
             "exit_code": 0  # if completed
         }
     """
-    execution_manager: ExecutionManager = ctx.request_context.lifespan_context["execution_manager"]
-    session_id = get_session_id(ctx)
+    context = _get_manager_and_session(ctx)
+    if context is None:
+        return {"error": "Missing request context", "output": []}
+    execution_manager, session_id = context
 
     try:
-        execution = execution_manager._get_execution(session_id, execution_id)
+        execution = execution_manager.get_execution(session_id, execution_id)
 
         if wait and execution.info.status == ExecutionStatus.RUNNING:
             # Wait for completion by consuming the stream
@@ -293,15 +382,31 @@ async def get_execution_output(
 
 def main() -> None:
     """Run the MCP server."""
+    global _auth_token
     import uvicorn
+    from starlette.routing import Route
 
     host = os.getenv("SANDBOX_HOST", "127.0.0.1")
-    port = int(os.getenv("SANDBOX_PORT", "8080"))
+    port = _get_int_env("SANDBOX_PORT", 8080)
+    _auth_token = os.getenv("SANDBOX_AUTH_TOKEN")
 
     # Get the ASGI app from FastMCP
     app = mcp.streamable_http_app()
 
+    # Add health check endpoint
+    async def health_check(request: Request) -> JSONResponse:
+        return JSONResponse({"status": "healthy"})
+
+    app.routes.append(Route("/health", health_check, methods=["GET"]))
+
+    # Add authentication middleware
+    app.add_middleware(BearerAuthMiddleware)
+
     print(f"Starting Sandbox MCP Server on {host}:{port}")
+    if _auth_token:
+        print("Authorization: enabled (SANDBOX_AUTH_TOKEN set)")
+    else:
+        print("Authorization: disabled (set SANDBOX_AUTH_TOKEN to enable)")
     uvicorn.run(app, host=host, port=port)
 
 

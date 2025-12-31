@@ -16,6 +16,7 @@ class ServerConfig:
     execution_timeout_seconds: int = 300
     output_buffer_size: int = 10000  # lines to buffer for reconnection
     default_sandbox_config: SandboxRuntimeConfig | None = field(default=None)
+    auth_token: str | None = None  # Bearer token for authorization (disabled if None)
 
     def __post_init__(self) -> None:
         if self.default_sandbox_config is None:

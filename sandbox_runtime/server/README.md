@@ -306,6 +306,7 @@ sequenceDiagram
 | `SANDBOX_MAX_CONCURRENT` | `10` | Max concurrent executions (global) |
 | `SANDBOX_MAX_PER_SESSION` | `5` | Max concurrent executions per session |
 | `SANDBOX_TIMEOUT` | `300` | Default execution timeout (seconds) |
+| `SANDBOX_AUTH_TOKEN` | *(none)* | Bearer token for authorization (disabled if not set) |
 
 ### Sandbox Configuration
 
@@ -322,7 +323,31 @@ sandbox_config = {
         "allow_write": ["/tmp", "."],
         "deny_write": [".env", "*.key"],
     },
+    "resource_limits": {
+        "max_memory_mb": 512,        # Max 512MB memory
+        "max_cpu_seconds": 30,       # Max 30 seconds CPU time
+        "max_file_size_mb": 100,     # Max 100MB file size
+        "max_processes": 10,         # Max 10 child processes
+    },
 }
+```
+
+### Resource Limits
+
+Resource limits enforce constraints on sandboxed processes:
+
+| Limit | Description | Signal on Violation |
+|-------|-------------|---------------------|
+| `max_memory_mb` | Virtual address space limit | SIGKILL (OOM) |
+| `max_cpu_seconds` | CPU time limit | SIGXCPU |
+| `max_file_size_mb` | Maximum file size | SIGXFSZ |
+| `max_processes` | Maximum child processes | Fork fails |
+
+When a resource limit is exceeded, a `resource_limit` event is emitted before the `exit` event:
+
+```json
+{"type": "resource_limit", "reason": "CPU time limit exceeded", "ts": 1735550000.5}
+{"type": "exit", "code": -24, "duration_ms": 30500, "ts": 1735550000.5}
 ```
 
 ## Session Management
@@ -362,13 +387,49 @@ stateDiagram-v2
 | `error` | Runner error | `message`, `ts` |
 | `cancelled` | Execution cancelled | `ts` |
 
+## Authentication
+
+The server supports optional Bearer token authentication via the `SANDBOX_AUTH_TOKEN` environment variable.
+
+### Enable Authentication
+
+```bash
+# Generate a secure token
+export SANDBOX_AUTH_TOKEN=$(openssl rand -hex 32)
+
+# Start server with auth enabled
+srt-mcp-server
+```
+
+### Client Configuration
+
+When authentication is enabled, clients must include the `Authorization` header:
+
+```python
+from mcp.client.streamable_http import streamablehttp_client
+
+headers = {"Authorization": f"Bearer {auth_token}"}
+async with streamablehttp_client("http://localhost:8080/mcp", headers=headers) as (read, write, _):
+    # ...
+```
+
+### Health Check Endpoint
+
+The `/health` endpoint is always accessible without authentication for load balancer health checks:
+
+```bash
+curl http://localhost:8080/health
+# {"status": "healthy"}
+```
+
 ## Security Considerations
 
-1. **Bind to localhost** in development (`SANDBOX_HOST=127.0.0.1`)
-2. **Use TLS** in production (reverse proxy recommended)
-3. **Validate working_directory** against allowlist if exposing externally
-4. **Rate limit** via `SANDBOX_MAX_PER_SESSION`
-5. **Timeout protection** via `SANDBOX_TIMEOUT`
+1. **Enable authentication** in production (`SANDBOX_AUTH_TOKEN`)
+2. **Bind to localhost** in development (`SANDBOX_HOST=127.0.0.1`)
+3. **Use TLS** in production (reverse proxy recommended)
+4. **Validate working_directory** against allowlist if exposing externally
+5. **Rate limit** via `SANDBOX_MAX_PER_SESSION`
+6. **Timeout protection** via `SANDBOX_TIMEOUT`
 
 ## Example: Claude Agent Integration
 

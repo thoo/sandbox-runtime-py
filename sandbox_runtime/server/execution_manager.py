@@ -317,6 +317,10 @@ class ExecutionManager:
         execution = self._get_execution(session_id, execution_id)
         return execution.output_buffer.copy()
 
+    def get_execution(self, session_id: str, execution_id: str) -> Execution:
+        """Get an execution, validating session ownership."""
+        return self._get_execution(session_id, execution_id)
+
     async def list_executions(self, session_id: str) -> list[dict]:
         """List all executions for a session."""
         execution_ids = self.session_executions.get(session_id, set())
