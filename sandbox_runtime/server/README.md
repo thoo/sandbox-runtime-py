@@ -271,26 +271,30 @@ sequenceDiagram
     participant S as MCP Server
     participant E as ExecutionManager
     participant R as Runner Process
-    participant B as Sandbox (OS)
+    participant B as Sandboxed Command<br/>(subprocess)
 
     C->>S: POST /mcp (initialize)
     S->>C: capabilities, session_id
 
     C->>S: tools/call: execute_code
     S->>E: create_execution()
-    E->>R: spawn subprocess
-    R->>B: SandboxManager.initialize()
-    R->>B: wrap_with_sandbox(cmd)
-    R->>B: execute command
+    E->>R: spawn Runner subprocess
+    Note over R: Runner Process (runner.py)
+    R->>R: SandboxManager.initialize()
+    R->>R: wrap_with_sandbox(cmd)
+    R->>B: spawn sandboxed subprocess
+    Note over B: sandbox-exec [user command]
 
     loop Stream Output
-        B-->>R: stdout/stderr
-        R-->>E: JSON events
+        B-->>R: process.stdout/stderr<br/>(subprocess pipes)
+        Note over R: stream_output() reads<br/>from subprocess pipes
+        R-->>E: JSON events<br/>(via Runner's stdout)
+        Note over E: read_events() reads<br/>JSON from Runner stdout
         E-->>E: buffer output
     end
 
-    B-->>R: exit
-    R-->>E: exit event
+    B-->>R: subprocess exit
+    R-->>E: exit event (JSON)
     E-->>S: execution complete
     S-->>C: result with output
 ```
