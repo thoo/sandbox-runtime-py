@@ -290,13 +290,14 @@ sequenceDiagram
         Note over R: stream_output() reads<br/>from subprocess pipes
         R-->>E: JSON events<br/>(via Runner's stdout)
         Note over E: read_events() reads<br/>JSON from Runner stdout
-        E-->>E: buffer output
+        E-->>E: buffer events<br/>(stdout, stderr, etc.)
     end
 
     B-->>R: subprocess exit
     R-->>E: exit event (JSON)
-    E-->>S: execution complete
-    S-->>C: result with output
+    E-->>S: return buffered output
+    Note over S: Response includes all events:<br/>{stdout, stderr, exit, ...}
+    S-->>C: {"output": [events]}<br/>All stdout/stderr surfaced
 ```
 
 ## Configuration
