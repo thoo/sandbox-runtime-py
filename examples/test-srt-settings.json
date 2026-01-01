@@ -1,0 +1,16 @@
+{
+  "network": {
+    "allowedDomains": [
+      "pypi.org",
+      "*.pypi.org",
+      "files.pythonhosted.org",
+      "*.pythonhosted.org"
+    ],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": ["~/.ssh"],
+    "allowWrite": [".", "/private/tmp", "~/.cache/uv"],
+    "denyWrite": []
+  }
+}

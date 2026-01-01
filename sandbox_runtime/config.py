@@ -59,14 +59,16 @@ def _validate_domain_pattern(value: str) -> str:
 class NetworkConfig(BaseModel):
     """Network configuration for sandbox restrictions."""
 
+    model_config = {"populate_by_name": True}
+
     allowed_domains: Annotated[
         list[str],
-        Field(description="List of allowed domains (e.g., ['github.com', '*.npmjs.org'])"),
+        Field(description="List of allowed domains (e.g., ['github.com', '*.npmjs.org'])", alias="allowedDomains"),
     ] = []
 
     denied_domains: Annotated[
         list[str],
-        Field(description="List of denied domains"),
+        Field(description="List of denied domains", alias="deniedDomains"),
     ] = []
 
     allow_unix_sockets: Annotated[
@@ -120,19 +122,21 @@ class NetworkConfig(BaseModel):
 class FilesystemConfig(BaseModel):
     """Filesystem configuration for sandbox restrictions."""
 
+    model_config = {"populate_by_name": True}
+
     deny_read: Annotated[
         list[str],
-        Field(description="Paths denied for reading"),
+        Field(description="Paths denied for reading", alias="denyRead"),
     ] = []
 
     allow_write: Annotated[
         list[str],
-        Field(description="Paths allowed for writing"),
+        Field(description="Paths allowed for writing", alias="allowWrite"),
     ] = []
 
     deny_write: Annotated[
         list[str],
-        Field(description="Paths denied for writing (takes precedence over allow_write)"),
+        Field(description="Paths denied for writing (takes precedence over allow_write)", alias="denyWrite"),
     ] = []
 
     allow_git_config: Annotated[

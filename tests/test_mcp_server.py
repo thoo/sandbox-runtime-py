@@ -3,6 +3,9 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+from click.testing import CliRunner
+
 import sandbox_runtime.server.mcp_server as mcp_server_module
 from sandbox_runtime.server.execution_manager import (
     ExecutionCompletedError,
@@ -616,3 +619,164 @@ async def test_auth_middleware_allows_multiple_endpoints_without_auth():
         assert result.status_code == 401
     finally:
         mcp_server_module._auth_token = original_token
+
+
+# --- CLI tests ---
+
+
+class TestMcpServerCli:
+    """Tests for the MCP server CLI."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    @pytest.fixture
+    def cli(self):
+        """Create the CLI command for testing."""
+        from sandbox_runtime.server.mcp_server import _create_cli
+
+        return _create_cli()
+
+    def test_help(self, runner, cli):
+        """Test --help flag shows usage information."""
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "Start the Sandbox MCP Server" in result.output
+        assert "--token" in result.output
+        assert "--host" in result.output
+        assert "--port" in result.output
+        assert "--max-concurrent" in result.output
+        assert "--max-per-session" in result.output
+        assert "--timeout" in result.output
+        assert "--log-file" in result.output
+
+    def test_cli_default_values(self, runner, monkeypatch):
+        """Test CLI uses correct default values."""
+        # Clear any existing env vars to test true defaults
+        monkeypatch.delenv("SANDBOX_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("SANDBOX_HOST", raising=False)
+        monkeypatch.delenv("SANDBOX_PORT", raising=False)
+        monkeypatch.delenv("SANDBOX_MAX_CONCURRENT", raising=False)
+        monkeypatch.delenv("SANDBOX_MAX_PER_SESSION", raising=False)
+        monkeypatch.delenv("SANDBOX_TIMEOUT", raising=False)
+        monkeypatch.delenv("SANDBOX_LOG_FILE", raising=False)
+
+        # Create CLI after clearing env vars
+        from sandbox_runtime.server.mcp_server import _create_cli
+
+        cli = _create_cli()
+
+        with patch("sandbox_runtime.server.mcp_server._run_server") as mock_run:
+            runner.invoke(cli, [])
+
+            mock_run.assert_called_once_with(
+                host="127.0.0.1",
+                port=8080,
+                token=None,
+                max_concurrent=10,
+                max_per_session=5,
+                timeout=300,
+                log_file=None,
+            )
+
+    def test_cli_custom_values(self, runner, cli):
+        """Test CLI accepts custom values."""
+        with patch("sandbox_runtime.server.mcp_server._run_server") as mock_run:
+            runner.invoke(
+                cli,
+                [
+                    "--token",
+                    "mytoken123",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "9000",
+                    "--max-concurrent",
+                    "20",
+                    "--max-per-session",
+                    "10",
+                    "--timeout",
+                    "600",
+                    "--log-file",
+                    "/tmp/server.log",
+                ],
+            )
+
+            mock_run.assert_called_once_with(
+                host="0.0.0.0",
+                port=9000,
+                token="mytoken123",
+                max_concurrent=20,
+                max_per_session=10,
+                timeout=600,
+                log_file="/tmp/server.log",
+            )
+
+    def test_cli_short_options(self, runner, cli):
+        """Test CLI accepts short option flags."""
+        with patch("sandbox_runtime.server.mcp_server._run_server") as mock_run:
+            runner.invoke(cli, ["-t", "shorttoken", "-p", "8888"])
+
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args[1]
+            assert call_kwargs["token"] == "shorttoken"
+            assert call_kwargs["port"] == 8888
+
+    def test_cli_env_var_fallback(self, runner, monkeypatch):
+        """Test CLI uses environment variables as fallback."""
+        monkeypatch.setenv("SANDBOX_AUTH_TOKEN", "env_token")
+        monkeypatch.setenv("SANDBOX_HOST", "192.168.1.1")
+        monkeypatch.setenv("SANDBOX_PORT", "7777")
+        monkeypatch.setenv("SANDBOX_MAX_CONCURRENT", "15")
+        monkeypatch.setenv("SANDBOX_MAX_PER_SESSION", "8")
+        monkeypatch.setenv("SANDBOX_TIMEOUT", "120")
+        monkeypatch.setenv("SANDBOX_LOG_FILE", "/var/log/sandbox.log")
+
+        # Create CLI after setting env vars so they're picked up
+        from sandbox_runtime.server.mcp_server import _create_cli
+
+        cli = _create_cli()
+
+        with patch("sandbox_runtime.server.mcp_server._run_server") as mock_run:
+            runner.invoke(cli, [])
+
+            mock_run.assert_called_once_with(
+                host="192.168.1.1",
+                port=7777,
+                token="env_token",
+                max_concurrent=15,
+                max_per_session=8,
+                timeout=120,
+                log_file="/var/log/sandbox.log",
+            )
+
+    def test_cli_args_override_env_vars(self, runner, monkeypatch):
+        """Test CLI arguments take precedence over environment variables."""
+        monkeypatch.setenv("SANDBOX_AUTH_TOKEN", "env_token")
+        monkeypatch.setenv("SANDBOX_PORT", "7777")
+
+        # Create CLI after setting env vars so they're picked up
+        from sandbox_runtime.server.mcp_server import _create_cli
+
+        cli = _create_cli()
+
+        with patch("sandbox_runtime.server.mcp_server._run_server") as mock_run:
+            runner.invoke(cli, ["--token", "cli_token", "--port", "9999"])
+
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args[1]
+            assert call_kwargs["token"] == "cli_token"
+            assert call_kwargs["port"] == 9999
+
+    def test_cli_invalid_port_type(self, runner, cli):
+        """Test CLI rejects invalid port type."""
+        result = runner.invoke(cli, ["--port", "not-a-number"])
+        assert result.exit_code != 0
+        assert "Invalid value" in result.output or "not a valid integer" in result.output
+
+    def test_cli_invalid_timeout_type(self, runner, cli):
+        """Test CLI rejects invalid timeout type."""
+        result = runner.invoke(cli, ["--timeout", "abc"])
+        assert result.exit_code != 0
