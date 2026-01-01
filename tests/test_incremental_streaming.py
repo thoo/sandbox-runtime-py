@@ -77,7 +77,7 @@ async def test_polling_without_wait_returns_incremental_output():
         # Start a long-running command
         execution = await manager.create_execution(
             session_id=session_id,
-            command="python -u -c \"import time; [print(f'Line {i}', flush=True) or time.sleep(0.2) for i in range(5)]\"",
+            command="python -u -c \"import time; [print(f'Line {i}', flush=True) or time.sleep(0.2) for i in range(5)]\"",  # noqa: E501
             timeout_seconds=10,
         )
 
@@ -130,9 +130,7 @@ async def test_stream_still_works_with_new_buffering():
         )
 
         # Consume via stream
-        events = []
-        async for event in execution.stream():
-            events.append(event)
+        events = [event async for event in execution.stream()]
 
         # Verify events were received
         stdout_events = [e for e in events if e["type"] == "stdout"]

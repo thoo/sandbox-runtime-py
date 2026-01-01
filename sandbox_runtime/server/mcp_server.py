@@ -3,6 +3,7 @@
 import json
 import os
 import secrets
+import sys
 import time
 import uuid
 from collections.abc import Callable
@@ -26,6 +27,7 @@ from .execution_manager import (
     ExecutionStatus,
     TooManyExecutionsError,
 )
+from .redis_event_store import RedisEventStore
 from .redis_state import RedisStateStore
 
 load_dotenv()
@@ -45,6 +47,7 @@ if _log_file:
 _auth_token: str | None = None
 _execution_manager: ExecutionManager | None = None
 _redis_store: RedisStateStore | None = None
+_redis_event_store: RedisEventStore | None = None
 _server_config: ServerConfig | None = None
 _session_id_map: dict[int, str] = {}
 
@@ -235,7 +238,7 @@ async def lifespan(server: FastMCP):
     Note: Uses global state (module-level) to persist across requests, similar to
     MCP SDK's event_store pattern. This prevents re-initialization on every request.
     """
-    global _auth_token, _execution_manager, _redis_store, _server_config
+    global _auth_token, _execution_manager, _redis_store, _redis_event_store, _server_config
 
     # Only initialize once (first request)
     if _execution_manager is None:
@@ -258,7 +261,13 @@ async def lifespan(server: FastMCP):
             logger.info(f"Initializing Redis state store at {redis_url}")
             _redis_store = RedisStateStore(redis_url)
             await _redis_store.connect()
-            logger.info("✅ Redis connected - distributed mode enabled")
+            logger.info("✅ Redis state store connected")
+
+            # Initialize Redis event store for session persistence
+            logger.info("Initializing Redis event store for MCP session persistence")
+            _redis_event_store = RedisEventStore(redis_url, ttl=3600)
+            await _redis_event_store.connect()
+            logger.info("✅ Redis event store connected - MCP sessions will persist across restarts")
 
         logger.info("Initializing ExecutionManager")
         logger.info(f"  max_concurrent_executions: {_server_config.max_concurrent_executions}")
@@ -283,12 +292,14 @@ mcp = FastMCP(
     lifespan=lifespan,
     json_response=True,
     stateless_http=False,  # Must be False to keep ExecutionManager alive across requests
+    event_store=_redis_event_store,  # Redis-backed event store for session persistence
     # IMPORTANT: We cannot use stateless_http=True because:
     # - Lifespan runs per-request in stateless mode, shutting down ExecutionManager
     # - This kills all running subprocess executions
     # - For multi-replica deployments, use Redis + sticky sessions instead
     # - Redis shares execution metadata/output across replicas
     # - Sticky sessions ensure subsequent requests hit the server where process is running
+    # - Redis event store enables session persistence across server restarts
 )
 
 
@@ -600,7 +611,7 @@ async def get_execution_output(
 
 async def _cleanup_global_state():
     """Cleanup global execution manager and Redis on shutdown."""
-    global _execution_manager, _redis_store, _session_id_map, _auth_token
+    global _execution_manager, _redis_store, _redis_event_store, _session_id_map, _auth_token
 
     if _execution_manager:
         logger.info("Shutting down ExecutionManager...")
@@ -609,8 +620,13 @@ async def _cleanup_global_state():
 
     if _redis_store:
         await _redis_store.close()
-        logger.info("Redis connection closed")
+        logger.info("Redis state store closed")
         _redis_store = None
+
+    if _redis_event_store:
+        await _redis_event_store.close()
+        logger.info("Redis event store closed")
+        _redis_event_store = None
 
     _session_id_map.clear()
     _auth_token = None

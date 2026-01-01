@@ -203,7 +203,7 @@ async def test_replay_events_incremental_polling():
         # Start long-running execution
         execution = await manager.create_execution(
             session_id=session_id,
-            command="python3 -u -c \"import time; [print(f'Count: {i}', flush=True) or time.sleep(0.2) for i in range(10)]\"",
+            command="python3 -u -c \"import time; [print(f'Count: {i}', flush=True) or time.sleep(0.2) for i in range(10)]\"",  # noqa: E501
             timeout_seconds=10,
         )
 
@@ -274,7 +274,7 @@ async def test_redis_event_id_persistence():
         await manager1.shutdown()
 
         # Create second manager instance (simulates server restart)
-        manager2 = ExecutionManager(config, redis_store=redis_store)
+        ExecutionManager(config, redis_store=redis_store)
 
         # Get events from Redis via second manager
         events2 = await redis_store.get_output(execution_id)
