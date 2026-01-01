@@ -81,6 +81,38 @@ class RedisStateStore:
             return json.loads(data)
         return None
 
+    async def update_execution(self, execution_id: str, updates: dict):
+        """Update execution data in Redis.
+
+        Args:
+            execution_id: Execution identifier
+            updates: Dict of fields to update
+        """
+        if not self._client:
+            await self.connect()
+
+        key = f"execution:{execution_id}"
+
+        # Get existing data
+        existing_data_json = await self._client.get(key)
+        if not existing_data_json:
+            logger.warning(f"Cannot update non-existent execution {execution_id[:8]}...")
+            return
+
+        # Merge updates
+        existing_data = json.loads(existing_data_json)
+        existing_data.update(updates)
+
+        # Get remaining TTL to preserve it
+        ttl = await self._client.ttl(key)
+        if ttl == -1:  # No expiration
+            ttl = 3600  # Default to 1 hour
+
+        # Store updated data with preserved TTL
+        await self._client.set(key, json.dumps(existing_data), ex=ttl)
+
+        logger.debug(f"Updated execution {execution_id[:8]}... with {list(updates.keys())}")
+
     async def delete_execution(self, execution_id: str, session_id: str):
         """Delete execution data from Redis.
 

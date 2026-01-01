@@ -296,6 +296,19 @@ class ExecutionManager:
                         execution.info.error_message = event.get("message")
 
                     execution.info.completed_at = time.time()
+
+                    # Update Redis with final execution metadata
+                    if self.redis_store:
+                        await self.redis_store.update_execution(
+                            execution.info.id,
+                            {
+                                "status": execution.info.status.value,
+                                "completed_at": execution.info.completed_at,
+                                "exit_code": execution.info.exit_code,
+                                "error_message": execution.info.error_message,
+                            },
+                        )
+
                     break
         except asyncio.CancelledError:
             execution.info.status = ExecutionStatus.CANCELLED
@@ -303,6 +316,16 @@ class ExecutionManager:
             cancelled_event = {"type": "cancelled", "ts": time.time()}
             execution.output_buffer.append(cancelled_event)
             await execution.output_queue.put(cancelled_event)
+
+            # Update Redis with cancellation
+            if self.redis_store:
+                await self.redis_store.update_execution(
+                    execution.info.id,
+                    {
+                        "status": ExecutionStatus.CANCELLED.value,
+                        "completed_at": execution.info.completed_at,
+                    },
+                )
         except Exception as e:
             execution.info.status = ExecutionStatus.FAILED
             execution.info.error_message = str(e)
@@ -310,6 +333,17 @@ class ExecutionManager:
             error_event = {"type": "error", "message": str(e), "ts": time.time()}
             execution.output_buffer.append(error_event)
             await execution.output_queue.put(error_event)
+
+            # Update Redis with error
+            if self.redis_store:
+                await self.redis_store.update_execution(
+                    execution.info.id,
+                    {
+                        "status": ExecutionStatus.FAILED.value,
+                        "completed_at": execution.info.completed_at,
+                        "error_message": execution.info.error_message,
+                    },
+                )
 
     async def send_stdin(self, session_id: str, execution_id: str, input_data: str) -> None:
         """Send stdin to an execution."""

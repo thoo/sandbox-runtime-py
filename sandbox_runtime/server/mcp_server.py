@@ -267,6 +267,8 @@ async def lifespan(server: FastMCP):
             logger.info("Initializing Redis event store for MCP session persistence")
             _redis_event_store = RedisEventStore(redis_url, ttl=3600)
             await _redis_event_store.connect()
+            # Set event store on server instance now that it's connected
+            server.set_event_store(_redis_event_store)
             logger.info("✅ Redis event store connected - MCP sessions will persist across restarts")
 
         logger.info("Initializing ExecutionManager")
@@ -292,7 +294,7 @@ mcp = FastMCP(
     lifespan=lifespan,
     json_response=True,
     stateless_http=False,  # Must be False to keep ExecutionManager alive across requests
-    event_store=_redis_event_store,  # Redis-backed event store for session persistence
+    # Note: event_store is set via server.set_event_store() in lifespan after Redis connects
     # IMPORTANT: We cannot use stateless_http=True because:
     # - Lifespan runs per-request in stateless mode, shutting down ExecutionManager
     # - This kills all running subprocess executions
