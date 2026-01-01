@@ -307,60 +307,120 @@ This package provides a standalone sandbox implementation that can be used as bo
 - **Unix socket restrictions**: Control access to local IPC sockets
 - **Violation monitoring**: On macOS, tap into the system's sandbox violation log store for real-time alerts
 
-### Example Use Case: Sandboxing MCP Servers
+### MCP Server for Sandboxed Code Execution
 
-A key use case is sandboxing Model Context Protocol (MCP) servers to restrict their capabilities:
+This package includes a built-in MCP server (`srt-mcp-server`) that provides sandboxed code execution capabilities. It allows AI agents to execute commands in isolated environments with configurable restrictions.
 
-**Without sandboxing** (`.mcp.json`):
+#### Installing the MCP Server
+
+The MCP server requires additional dependencies. Install with the `server` extra:
+
+```bash
+# For development (run commands with uv run)
+uv sync --extra server
+
+# For global installation (command available everywhere)
+uv tool install -e ".[server]"
+# Note: Add ~/.local/bin to your PATH if prompted
+```
+
+#### Starting the MCP Server
+
+```bash
+# Using uv run (recommended for development)
+uv run srt-mcp-server --token mysecrettoken --port 8080
+
+# Or if installed globally via uv tool install
+srt-mcp-server --token mysecrettoken --port 8080
+
+# Start with default settings (no auth, localhost:8080)
+uv run srt-mcp-server
+
+# Start on custom host/port with auth
+uv run srt-mcp-server --host 0.0.0.0 --port 9000 --token mytoken
+
+# Using environment variables
+SANDBOX_AUTH_TOKEN=mytoken SANDBOX_PORT=9000 uv run srt-mcp-server
+
+# View all options
+uv run srt-mcp-server --help
+```
+
+#### CLI Options
+
+| Option | Env Variable | Default | Description |
+|--------|--------------|---------|-------------|
+| `--token`, `-t` | `SANDBOX_AUTH_TOKEN` | None | Bearer token for authentication |
+| `--host` | `SANDBOX_HOST` | `127.0.0.1` | Host to bind the server to |
+| `--port`, `-p` | `SANDBOX_PORT` | `8080` | Port to bind the server to |
+| `--max-concurrent` | `SANDBOX_MAX_CONCURRENT` | `10` | Max concurrent executions |
+| `--max-per-session` | `SANDBOX_MAX_PER_SESSION` | `5` | Max executions per session |
+| `--timeout` | `SANDBOX_TIMEOUT` | `300` | Default execution timeout (seconds) |
+| `--log-file` | `SANDBOX_LOG_FILE` | None | Log file path |
+
+#### Configuring with Claude Code
+
+Add the server to your `.mcp.json` configuration:
 
 ```json
 {
   "mcpServers": {
-    "filesystem": {
+    "sandbox": {
+      "type": "streamable-http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer your-secret-token"
+      }
+    }
+  }
+}
+```
+
+Or have Claude Code start the server automatically:
+
+```json
+{
+  "mcpServers": {
+    "sandbox": {
       "command": "uv",
-      "args": ["run", "python", "-m", "mcp_server_filesystem"]
+      "args": ["run", "--directory", "/path/to/sandbox_runtime_py", "srt-mcp-server", "--token", "your-secret-token"]
     }
   }
 }
 ```
 
-**With sandboxing** (`.mcp.json`):
+If installed globally via `uv tool install`:
 
 ```json
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "srt-py",
-      "args": ["uv", "run", "python", "-m", "mcp_server_filesystem"]
+    "sandbox": {
+      "command": "srt-mcp-server",
+      "args": ["--token", "your-secret-token", "--port", "8080"]
     }
   }
 }
 ```
 
-If you have an installed entrypoint, you can use `uvx` instead:
+#### Available MCP Tools
 
-```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "uvx",
-      "args": ["mcp_server_filesystem"]
-    }
-  }
-}
-```
+The server exposes these tools via MCP:
 
-**With sandboxing** (`.mcp.json`):
+- **execute_code** - Execute a command in the sandbox (sync, waits for completion)
+- **execute_code_async** - Start a command without waiting (returns execution_id)
+- **get_execution_output** - Get output from an execution
+- **get_execution_status** - Get current status of an execution
+- **send_stdin** - Send input to an interactive execution
+- **cancel_execution** - Cancel a running execution
+- **list_executions** - List all executions for the current session
 
-```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "srt-py",
-      "args": ["uvx", "mcp_server_filesystem"]
-    }
-  }
-}
+#### Health Check
+
+The server exposes a health check endpoint at `/health`:
+
+```bash
+curl http://localhost:8080/health
+# {"status": "healthy"}
 ```
 
 ## How It Works

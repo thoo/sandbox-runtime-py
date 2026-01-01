@@ -57,7 +57,7 @@ class RedisStateStore:
         await self._client.set(key, json.dumps(data), ex=ttl)
 
         # Add to session's execution set
-        await self._client.sadd(session_key, execution_id)
+        await self._client.sadd(session_key, execution_id)  # type: ignore[misc]
         await self._client.expire(session_key, ttl)
 
         logger.debug(f"Stored execution {execution_id[:8]}... for session {session_id[:8]}...")
@@ -96,7 +96,7 @@ class RedisStateStore:
 
         # Remove from Redis
         await self._client.delete(key)
-        await self._client.srem(session_key, execution_id)
+        await self._client.srem(session_key, execution_id)  # type: ignore[misc]
 
         logger.debug(f"Deleted execution {execution_id[:8]}...")
 
@@ -113,7 +113,7 @@ class RedisStateStore:
             await self.connect()
 
         session_key = f"session:{session_id}:executions"
-        execution_ids = await self._client.smembers(session_key)
+        execution_ids = await self._client.smembers(session_key)  # type: ignore[misc]
         return list(execution_ids)
 
     async def append_output(self, execution_id: str, event: dict):
@@ -135,7 +135,7 @@ class RedisStateStore:
             event["event_id"] = str(uuid.uuid4())
 
         # Append event to list
-        await self._client.rpush(output_key, json.dumps(event))
+        await self._client.rpush(output_key, json.dumps(event))  # type: ignore[misc]
 
         # Set TTL if not already set
         ttl = await self._client.ttl(output_key)
@@ -157,7 +157,7 @@ class RedisStateStore:
             await self.connect()
 
         output_key = f"execution:{execution_id}:output"
-        events = await self._client.lrange(output_key, start, end)
+        events = await self._client.lrange(output_key, start, end)  # type: ignore[misc]
 
         return [json.loads(event) for event in events]
 
@@ -174,7 +174,7 @@ class RedisStateStore:
             await self.connect()
 
         output_key = f"execution:{execution_id}:output"
-        return await self._client.llen(output_key)
+        return await self._client.llen(output_key)  # type: ignore[misc]
 
     async def replay_events_after(self, execution_id: str, last_event_id: str) -> list[dict] | None:
         """Replay output events after a specific event ID (resumability).
@@ -198,7 +198,7 @@ class RedisStateStore:
             await self.connect()
 
         output_key = f"execution:{execution_id}:output"
-        all_events_json = await self._client.lrange(output_key, 0, -1)
+        all_events_json = await self._client.lrange(output_key, 0, -1)  # type: ignore[misc]
 
         if not all_events_json:
             return []
