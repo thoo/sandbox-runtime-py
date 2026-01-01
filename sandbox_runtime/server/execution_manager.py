@@ -141,15 +141,13 @@ class Execution:
     output_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
 
     async def stream(self) -> AsyncIterator[dict]:
-        """Stream output events from this execution."""
+        """Stream output events from this execution.
+
+        Note: Events are already added to output_buffer by _read_runner_output,
+        so this method just consumes from the queue and yields them.
+        """
         while True:
             event = await self.output_queue.get()
-            self.output_buffer.append(event)
-
-            # Trim buffer if too large
-            if len(self.output_buffer) > self.runner.output_buffer_size:
-                self.output_buffer = self.output_buffer[-self.runner.output_buffer_size :]
-
             yield event
 
             if event["type"] in ("exit", "error", "timeout", "cancelled"):
@@ -175,12 +173,13 @@ class ExecutionCompletedError(Exception):
 class ExecutionManager:
     """Manages the lifecycle of all executions across sessions."""
 
-    def __init__(self, config: ServerConfig | None = None):
+    def __init__(self, config: ServerConfig | None = None, redis_store=None):
         self.config = config or ServerConfig()
         self.executions: dict[str, Execution] = {}  # execution_id -> Execution
         self.session_executions: dict[str, set[str]] = {}  # session_id -> set of execution_ids
         self._lock = asyncio.Lock()
         self._background_tasks: set[asyncio.Task] = set()
+        self.redis_store = redis_store  # Optional Redis state store for distributed mode
 
     async def create_execution(
         self,
@@ -239,6 +238,21 @@ class ExecutionManager:
                 self.session_executions[session_id] = set()
             self.session_executions[session_id].add(execution_id)
 
+            # Store execution metadata in Redis if available
+            if self.redis_store:
+                await self.redis_store.set_execution(
+                    execution_id,
+                    session_id,
+                    {
+                        "id": execution_id,
+                        "session_id": session_id,
+                        "command": command,
+                        "status": ExecutionStatus.RUNNING.value,
+                        "started_at": info.started_at,
+                        "interactive": interactive,
+                    },
+                )
+
             # Start background task to read runner output
             task = asyncio.create_task(self._read_runner_output(execution))
             self._background_tasks.add(task)
@@ -251,6 +265,22 @@ class ExecutionManager:
         """Background task to read output from runner and queue it."""
         try:
             async for event in execution.runner.read_events():
+                # Add unique event_id for resumability (if not already present)
+                if "event_id" not in event:
+                    event["event_id"] = str(uuid.uuid4())
+
+                # Add to buffer immediately for incremental polling
+                execution.output_buffer.append(event)
+
+                # Trim buffer if too large
+                if len(execution.output_buffer) > execution.runner.output_buffer_size:
+                    execution.output_buffer = execution.output_buffer[-execution.runner.output_buffer_size :]
+
+                # Store in Redis if available (for distributed access)
+                if self.redis_store:
+                    await self.redis_store.append_output(execution.info.id, event)
+
+                # Also queue for stream() consumers
                 await execution.output_queue.put(event)
 
                 if event["type"] in ("exit", "error", "timeout", "cancelled"):
@@ -270,12 +300,16 @@ class ExecutionManager:
         except asyncio.CancelledError:
             execution.info.status = ExecutionStatus.CANCELLED
             execution.info.completed_at = time.time()
-            await execution.output_queue.put({"type": "cancelled", "ts": time.time()})
+            cancelled_event = {"type": "cancelled", "ts": time.time()}
+            execution.output_buffer.append(cancelled_event)
+            await execution.output_queue.put(cancelled_event)
         except Exception as e:
             execution.info.status = ExecutionStatus.FAILED
             execution.info.error_message = str(e)
             execution.info.completed_at = time.time()
-            await execution.output_queue.put({"type": "error", "message": str(e), "ts": time.time()})
+            error_event = {"type": "error", "message": str(e), "ts": time.time()}
+            execution.output_buffer.append(error_event)
+            await execution.output_queue.put(error_event)
 
     async def send_stdin(self, session_id: str, execution_id: str, input_data: str) -> None:
         """Send stdin to an execution."""
@@ -300,22 +334,76 @@ class ExecutionManager:
 
     async def get_status(self, session_id: str, execution_id: str) -> dict:
         """Get the status of an execution."""
-        execution = self._get_execution(session_id, execution_id)
-        return {
-            "id": execution.info.id,
-            "status": execution.info.status.value,
-            "command": execution.info.command,
-            "interactive": execution.info.interactive,
-            "started_at": execution.info.started_at,
-            "completed_at": execution.info.completed_at,
-            "exit_code": execution.info.exit_code,
-            "error_message": execution.info.error_message,
-        }
+        try:
+            # Try local execution first
+            execution = self._get_execution(session_id, execution_id)
+            return {
+                "id": execution.info.id,
+                "status": execution.info.status.value,
+                "command": execution.info.command,
+                "interactive": execution.info.interactive,
+                "started_at": execution.info.started_at,
+                "completed_at": execution.info.completed_at,
+                "exit_code": execution.info.exit_code,
+                "error_message": execution.info.error_message,
+            }
+        except ExecutionNotFoundError:
+            # If not found locally, try Redis (for distributed deployments)
+            if self.redis_store:
+                data = await self.redis_store.get_execution(execution_id)
+                if data:
+                    return data
+            raise
 
     async def get_buffered_output(self, session_id: str, execution_id: str) -> list[dict]:
         """Get buffered output from an execution."""
-        execution = self._get_execution(session_id, execution_id)
-        return execution.output_buffer.copy()
+        try:
+            # Try local execution first
+            execution = self._get_execution(session_id, execution_id)
+            return execution.output_buffer.copy()
+        except ExecutionNotFoundError:
+            # If not found locally, try Redis (for distributed deployments)
+            if self.redis_store:
+                output = await self.redis_store.get_output(execution_id)
+                return output
+            raise
+
+    async def replay_events_after(self, session_id: str, execution_id: str, last_event_id: str) -> list[dict] | None:
+        """Replay output events after a specific event ID (resumability).
+
+        This enables clients to resume from where they left off after disconnection.
+
+        Args:
+            session_id: Session identifier
+            execution_id: Execution identifier
+            last_event_id: Last event ID the client received
+
+        Returns:
+            List of events after last_event_id, or None if event not found
+        """
+        try:
+            # Try local execution first
+            execution = self._get_execution(session_id, execution_id)
+            output_buffer = execution.output_buffer
+
+            # Find the last event index
+            last_event_index = None
+            for i, event in enumerate(output_buffer):
+                if event.get("event_id") == last_event_id:
+                    last_event_index = i
+                    break
+
+            if last_event_index is None:
+                return None
+
+            # Return events after the last one
+            return output_buffer[last_event_index + 1 :]
+
+        except ExecutionNotFoundError:
+            # If not found locally, try Redis (for distributed deployments)
+            if self.redis_store:
+                return await self.redis_store.replay_events_after(execution_id, last_event_id)
+            raise
 
     def get_execution(self, session_id: str, execution_id: str) -> Execution:
         """Get an execution, validating session ownership."""
