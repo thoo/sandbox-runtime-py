@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "Anthropic" }
+    { name = "Thein Oo" }
 ]
 keywords = ["sandbox", "security", "process-isolation", "macos", "linux"]
 classifiers = [
